@@ -142,6 +142,7 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
       filter=+filter1,-filter2,...
       exclude_files=regex
       linelength=80
+      extensions=hpp,cpp
 
     "set noparent" option prevents cpplint from traversing directory tree
     upwards looking for more .cfg files in parent directories. This option
@@ -156,6 +157,9 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
     through liner.
 
     "linelength" allows to specify the allowed line length for the project.
+
+    "extensions" is identical to the --extension flag.  It adds to the list
+    allowed file extensions for cpplint to check.
 
     CPPLINT.cfg has an effect on files in the same directory and all
     sub-directories, unless overridden by a nested configuration file.
@@ -6103,6 +6107,12 @@ def ProcessConfigOverrides(filename):
                 _line_length = int(val)
             except ValueError:
                 sys.stderr.write('Line length must be numeric.')
+          elif name == 'extensions':
+            global _valid_extensions
+            try:
+                _valid_extensions.update(set(val.split(',')))
+            except ValueError:
+                sys.stderr.write('Extensions must be comma seperated list.')
           else:
             sys.stderr.write(
                 'Invalid configuration option (%s) in file %s\n' %
