@@ -158,7 +158,7 @@ Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
 
     "linelength" allows to specify the allowed line length for the project.
 
-    "extensions" is identical to the --extension flag.  It adds to the list
+    "extensions" is identical to the --extension flag.  It adds to the list of
     allowed file extensions for cpplint to check.
 
     CPPLINT.cfg has an effect on files in the same directory and all
@@ -6049,6 +6049,75 @@ def ProcessFileData(filename, file_extension, lines, error,
 
   CheckForNewlineAtEOF(filename, lines, error)
 
+
+def ProcessConfigOverridesData(filename, lines, cfg_file, base_name, error):
+  """ Processes the config overrides in the given config lines.
+
+  Args:
+    filename: The path of the file being processed by the linter.
+    lines: An array of strings, each representing a line of the config file.
+    cfg_file: The full path to the config file being processed.
+    base_name: The filename component of the file being processed by the
+               linter.
+    error: A callable to which errors are reported, takes one argument: error
+           message.
+
+  Returns:
+    Returns a tuple of three elements (process_file, keep_looking, cfg_filters):
+    process_file: False if current |filename| should not be processed further.
+    keep_looking: False if to stop searching for config files
+    cfg_filters: A list of filters for warnings.
+  """
+
+  process_file = True
+  keep_looking = True
+  cfg_filters = []
+
+  for line in lines:
+    line, _, _ = line.partition('#')  # Remove comments.
+    if not line.strip():
+      continue
+
+    name, _, val = line.partition('=')
+    name = name.strip()
+    val = val.strip()
+    if name == 'set noparent':
+      keep_looking = False
+    elif name == 'filter':
+      cfg_filters.append(val)
+    elif name == 'exclude_files':
+      # When matching exclude_files pattern, use the base_name of
+      # the current file name or the directory name we are processing.
+      # For example, if we are checking for lint errors in /foo/bar/baz.cc
+      # and we found the .cfg file at /foo/CPPLINT.cfg, then the config
+      # file's "exclude_files" filter is meant to be checked against "bar"
+      # and not "baz" nor "bar/baz.cc".
+      if base_name:
+        pattern = re.compile(val)
+        if pattern.match(base_name):
+          error('Ignoring "%s": file excluded by "%s". File path component "%s"'
+                ' matches pattern "%s"\n' %
+                (filename, cfg_file, base_name, val))
+          process_file = False
+          break
+    elif name == 'linelength':
+      global _line_length
+      try:
+          _line_length = int(val)
+      except ValueError:
+          error('Line length must be numeric.')
+    elif name == 'extensions':
+      global _valid_extensions
+      try:
+          _valid_extensions.update(set(val.split(',')))
+      except ValueError:
+          error('Extensions must be comma seperated list.')
+    else:
+      error('Invalid configuration option (%s) in file %s\n' % (name, cfg_file))
+
+  return (process_file, keep_looking, cfg_filters)
+
+
 def ProcessConfigOverrides(filename):
   """ Loads the configuration files and processes the config overrides.
 
@@ -6074,49 +6143,14 @@ def ProcessConfigOverrides(filename):
 
     try:
       with open(cfg_file) as file_handle:
-        for line in file_handle:
-          line, _, _ = line.partition('#')  # Remove comments.
-          if not line.strip():
-            continue
+        lines = file_handle.readlines()
+        process_file, keep_looking, new_filters = ProcessConfigOverridesData(
+          filename, lines, cfg_file, base_name, sys.stderr.write)
 
-          name, _, val = line.partition('=')
-          name = name.strip()
-          val = val.strip()
-          if name == 'set noparent':
-            keep_looking = False
-          elif name == 'filter':
-            cfg_filters.append(val)
-          elif name == 'exclude_files':
-            # When matching exclude_files pattern, use the base_name of
-            # the current file name or the directory name we are processing.
-            # For example, if we are checking for lint errors in /foo/bar/baz.cc
-            # and we found the .cfg file at /foo/CPPLINT.cfg, then the config
-            # file's "exclude_files" filter is meant to be checked against "bar"
-            # and not "baz" nor "bar/baz.cc".
-            if base_name:
-              pattern = re.compile(val)
-              if pattern.match(base_name):
-                sys.stderr.write('Ignoring "%s": file excluded by "%s". '
-                                 'File path component "%s" matches '
-                                 'pattern "%s"\n' %
-                                 (filename, cfg_file, base_name, val))
-                return False
-          elif name == 'linelength':
-            global _line_length
-            try:
-                _line_length = int(val)
-            except ValueError:
-                sys.stderr.write('Line length must be numeric.')
-          elif name == 'extensions':
-            global _valid_extensions
-            try:
-                _valid_extensions.update(set(val.split(',')))
-            except ValueError:
-                sys.stderr.write('Extensions must be comma seperated list.')
-          else:
-            sys.stderr.write(
-                'Invalid configuration option (%s) in file %s\n' %
-                (name, cfg_file))
+        if not process_file:
+          return False
+
+        cfg_filtesr.extend(new_filters)
 
     except IOError:
       sys.stderr.write(

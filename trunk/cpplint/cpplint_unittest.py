@@ -3718,6 +3718,57 @@ class CpplintTest(CpplintTestBase):
       cpplint._line_length = old_line_length
       cpplint._valid_extensions = old_valid_extensions
 
+  def testProcessConfigOverridesData(self):
+    old_line_length = cpplint._line_length
+    old_valid_extensions = cpplint._valid_extensions
+    try:
+      filename = 'bar/baz/foo.cpp'
+      cfg_file = 'bar/CPPLINT.cfg'
+      base_name = 'baz'
+      errors = []
+      error_func = lambda e: errors.append(e)
+
+      processConfigOverridesLines = lambda x: cpplint.ProcessConfigOverridesData(
+          filename, x, cfg_file, base_name, error_func)
+
+      # Return tuple is is (process file, keep looking for cfg, cfg filters)
+
+      self.assertEquals((True, True, []), processConfigOverridesLines([]))
+
+      self.assertEquals((True, False, []),
+                        processConfigOverridesLines(['set noparent']))
+
+      filt = '-,+whitespace,-whitespace/indent'
+      filt2 = '-whitespace/indent'
+      lines = ['filter='+filt,'filter='+filt2]
+      self.assertEquals((True, True, [filt,filt2]),
+                        processConfigOverridesLines(lines))
+
+      self.assertEquals((False, True, []),
+                        processConfigOverridesLines(['exclude_files=baz']))
+      self.assertEquals(1, len(errors))
+      self.assertEquals((True, True, []),
+                        processConfigOverridesLines(['exclude_files=foo']))
+      errors.pop()
+
+      self.assertEquals((True, True, []),
+                        processConfigOverridesLines(['linelength=101']))
+      self.assertEquals(101, cpplint._line_length)
+
+      self.assertEquals((True, True, []),
+                        processConfigOverridesLines(['linelength=baz']))
+      self.assertEquals(101, cpplint._line_length)
+
+      self.assertFalse('hpp' in cpplint._valid_extensions)
+      self.assertEquals((True, True, []),
+                        processConfigOverridesLines(['extensions=hpp']))
+      self.assertTrue('hpp' in cpplint._valid_extensions)
+
+      # Combination
+    finally:
+      cpplint._line_length = old_line_length
+      cpplint._valid_extensions = old_valid_extensions
+
   def testLineLength(self):
     old_line_length = cpplint._line_length
     try:
